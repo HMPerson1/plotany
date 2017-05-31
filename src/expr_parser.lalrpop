@@ -1,0 +1,97 @@
+use std::str::FromStr;
+use expr::*;
+use expr::helper as eh;
+
+grammar;
+
+pub Equation : Equation = {
+    <e1:Expr> "=" <e2:Expr> => Equation(e1, e2),
+};
+
+Expr = Expr4;
+
+Expr4 : Expr = {
+    <e1:Expr4> "+" <e2:Expr3> => eh::add(e1, e2),
+    <e1:Expr4> "-" <e2:Expr3> => eh::sub(e1, e2),
+    Expr3,
+};
+
+Expr3 : Expr = {
+    <e1:Expr3> <e2:Expr1> => eh::mul(e1, e2),
+    <e1:Expr3> "*" <e2:Expr2> => eh::mul(e1, e2),
+    <e1:Expr3> "/" <e2:Expr2> => eh::div(e1, e2),
+    Expr2,
+};
+
+Expr2 : Expr = {
+    "+" <e:Expr1> => e,
+    "-" <e:Expr1> => eh::neg(e),
+    Expr1,
+};
+
+Expr1 : Expr = {
+    <e1:Expr1> "^" <e2:Expr0> => eh::pow(e1, e2),
+    Expr0,
+};
+
+Expr0 : Expr = {
+    <f:Fns> "(" <e:Expr> ")" => eh::func(f, e),
+    IDENT                    => eh::var(<>),
+    Num                      => eh::lit(<>),
+    "(" <e:Expr> ")"         => e,
+};
+
+Fns : KnownFunc = {
+    "abs"    => KnownFunc::AbsoluteValue,
+    "floor"  => KnownFunc::Floor,
+    "ceil"   => KnownFunc::Ceiling,
+    "exp"    => KnownFunc::Exponential,
+    "ln"     => KnownFunc::NaturalLogarithm,
+    "sin"    => KnownFunc::Sine,
+    "cos"    => KnownFunc::Cosine,
+    "tan"    => KnownFunc::Tangent,
+    "sec"    => KnownFunc::Secant,
+    "csc"    => KnownFunc::Cosecant,
+    "cot"    => KnownFunc::Cotangent,
+    "arcsin" => KnownFunc::ArcSine,
+    "arccos" => KnownFunc::ArcCosine,
+    "arctan" => KnownFunc::ArcTangent,
+    "arcsec" => KnownFunc::ArcSecant,
+    "arccsc" => KnownFunc::ArcCosecant,
+    "arccot" => KnownFunc::ArcCotangent,
+};
+
+Num : f64 = {
+    FLOAT => f64::from_str(<>).unwrap(),
+};
+
+match {
+    r"((\d+(\.\d*)?)|(\.\d+))([eE][-+]?\d+)?" => FLOAT,
+    "(",
+    ")",
+    "^",
+    "*",
+    "/",
+    "+",
+    "-",
+    "=",
+    "abs",
+    "floor",
+    "ceil",
+    "exp",
+    "ln",
+    "sin",
+    "cos",
+    "tan",
+    "sec",
+    "csc",
+    "cot",
+    "arcsin",
+    "arccos",
+    "arctan",
+    "arcsec",
+    "arccsc",
+    "arccot",
+} else {
+    r"[[:alpha:]]([[:alpha:]]|\d|[_])*" => IDENT,
+}
