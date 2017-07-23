@@ -1,5 +1,6 @@
 use std::error;
 use std::fmt;
+use std::hash::BuildHasher;
 use std::fmt::{Debug, Display, Formatter};
 use std::collections::HashMap;
 
@@ -37,6 +38,7 @@ pub enum KnownFunc {
     ArcCotangent,
 }
 
+// do constant-folding at construction time
 pub mod helper {
     use expr::*;
     pub fn add(e1: Expr, e2: Expr) -> Expr {
@@ -81,8 +83,8 @@ pub mod helper {
     pub fn lit(v: f64) -> Expr {
         Expr::Lit(v)
     }
-    pub fn var(v: &str) -> Expr {
-        Expr::Var(v.to_owned())
+    pub fn var<S: Into<String>>(v: S) -> Expr {
+        Expr::Var(v.into())
     }
 }
 
@@ -91,8 +93,19 @@ pub enum EvalError<'a> {
     UnknownVar(&'a str),
 }
 
+impl Equation {
+    pub fn vars(&self) -> HashMap<&str, f64> {
+        let mut r = self.0.vars();
+        r.extend(self.1.vars());
+        r
+    }
+    pub fn eval_diff<S: BuildHasher>(&self, env: &HashMap<&str, f64, S>) -> Result<f64, EvalError> {
+        self.0.eval(env).and_then(|l| self.1.eval(env).map(|r| l-r))
+    }
+}
+
 impl Expr {
-    pub fn eval(&self, env: &HashMap<&str, f64>) -> Result<f64, EvalError> {
+    pub fn eval<S: BuildHasher>(&self, env: &HashMap<&str, f64, S>) -> Result<f64, EvalError> {
         use self::Expr::*;
         match *self {
             Add(ref a, ref b) => Ok(a.eval(env)? + b.eval(env)?),
@@ -103,6 +116,28 @@ impl Expr {
             Func(ref f, ref a) => Ok(f.eval(a.eval(env)?)),
             Lit(a) => Ok(a),
             Var(ref a) => env.get(a.as_str()).cloned().ok_or_else(|| EvalError::UnknownVar(a)),
+        }
+    }
+
+    pub fn vars(&self) -> HashMap<&str, f64> {
+        use self::Expr::*;
+        match *self {
+            Add(ref a, ref b) |
+            Sub(ref a, ref b) |
+            Mul(ref a, ref b) |
+            Div(ref a, ref b) |
+            Pow(ref a, ref b) => {
+                let mut r = a.vars();
+                r.extend(b.vars());
+                r
+            }
+            Func(_, ref a) => a.vars(),
+            Lit(_) => HashMap::new(),
+            Var(ref a) => {
+                let mut r = HashMap::new();
+                r.insert(a.as_str(), 0.0);
+                r
+            }
         }
     }
 }

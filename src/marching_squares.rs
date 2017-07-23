@@ -113,10 +113,9 @@ pub fn marching_squares<F>(ctx: &cairo::Context,
     ctx.set_line_width(1.5);
     ctx.stroke();
     ctx.restore();
-
 }
 
-// Returns the value `t` such that `a + t * (b - a) = 0`
+/// Returns the value `t` such that `a + t * (b - a) = 0`
 fn inv_lerp_0(a: f64, b: f64) -> f64 {
     a / (a - b)
 }

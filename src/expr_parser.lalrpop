@@ -8,7 +8,7 @@ pub Equation : Equation = {
     <e1:Expr> "=" <e2:Expr> => Equation(e1, e2),
 };
 
-Expr = Expr4;
+pub Expr = Expr4;
 
 Expr4 : Expr = {
     <e1:Expr4> "+" <e2:Expr3> => eh::add(e1, e2),
