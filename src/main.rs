@@ -1,17 +1,12 @@
 #![cfg_attr(feature = "cargo-clippy", warn(clippy,clippy_pedantic))]
 #![cfg_attr(feature = "cargo-clippy", allow(missing_docs_in_private_items))]
 #![feature(test)]
-extern crate lalrpop_util;
+extern crate test;
 extern crate ndarray;
 extern crate gtk;
 extern crate cairo;
-extern crate test;
 extern crate fnv;
-extern crate meval;
-#[macro_use]
-extern crate lazy_static;
 
-// TODO: use meval
 mod expr;
 #[cfg_attr(feature = "cargo-clippy", allow(clippy,clippy_pedantic))]
 mod expr_parser;
@@ -20,9 +15,7 @@ mod marching_squares;
 use std::error::Error;
 use std::rc::Rc;
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
-
-use fnv::FnvHashMap;
+use std::ops::Range;
 
 use gtk::prelude::*;
 
@@ -60,6 +53,10 @@ fn main0() -> Result<(), Box<Error>> {
                               drawing: gtk::DrawingArea,
                               entry_stack: gtk::Stack,
                               implicit_eqn_entry: gtk::Entry,
+                              x_min_entry: gtk::SpinButton,
+                              x_max_entry: gtk::SpinButton,
+                              y_min_entry: gtk::SpinButton,
+                              y_max_entry: gtk::SpinButton,
                               plot_btn: gtk::Button,
                               info_bar: gtk::InfoBar,
                               info_label: gtk::Label,
@@ -71,9 +68,23 @@ fn main0() -> Result<(), Box<Error>> {
     });
 
     let eq: Rc<RefCell<Option<Box<FnMut(f64, f64) -> f64>>>> = Default::default();
+    let x_range: Rc<RefCell<Range<f64>>> = Rc::new(RefCell::new(-10.0..10.0));
+    let y_range: Rc<RefCell<Range<f64>>> = Rc::new(RefCell::new(-10.0..10.0));
+
+    {
+        use std::f64::MAX;
+        x_min_entry.set_range(-MAX, MAX);
+        x_min_entry.set_value(-10.0);
+        x_max_entry.set_range(-MAX, MAX);
+        x_max_entry.set_value(10.0);
+        y_min_entry.set_range(-MAX, MAX);
+        y_min_entry.set_value(-10.0);
+        y_max_entry.set_range(-MAX, MAX);
+        y_max_entry.set_value(10.0);
+    }
 
     plot_btn.connect_clicked(
-        cloning!(eq, implicit_eqn_entry, info_bar_revealer, info_label, drawing => move |_| {
+        cloning!(eq, x_range, y_range, x_min_entry, x_max_entry, y_min_entry, y_max_entry, implicit_eqn_entry, info_bar_revealer, info_label, drawing => move |_| {
             // println!("{:?}", implicit_eqn_entry.get_text());
             drawing.queue_draw();
             *eq.borrow_mut() = {
@@ -99,7 +110,9 @@ fn main0() -> Result<(), Box<Error>> {
                         None
                     }
                 }
-            }
+            };
+            *x_range.borrow_mut() = x_min_entry.get_value() .. x_max_entry.get_value();
+            *y_range.borrow_mut() = y_min_entry.get_value() .. y_max_entry.get_value();
         }));
 
     info_bar.connect_response(cloning!(info_bar_revealer => move |_, _| {
@@ -107,7 +120,7 @@ fn main0() -> Result<(), Box<Error>> {
     }));
 
 
-    drawing.connect_draw(cloning!(eq => move |_, ctx| {
+    drawing.connect_draw(cloning!(eq, x_range, y_range => move |_, ctx| {
         let mut eq = eq.borrow_mut();
         let mut const_zero = |_,_| 0.0;
         let f = if let Some(ref mut eq) = *eq {
@@ -117,14 +130,14 @@ fn main0() -> Result<(), Box<Error>> {
         };
         marching_squares::marching_squares(ctx,
                                            f,
-                                           &(-10.0..10.0),
+                                           &*x_range.borrow(),
                                            256,
-                                           &(-10.0..10.0),
+                                           &*y_range.borrow(),
                                            256);
         Inhibit(false)
     }));
 
-    window.show_all();
+    window.show();
     // `drawing`'s size_request is set in `layout.glade`
     // but for some reason that causes weirdness with resizing the infobar
     // so we let the size allocation process thing happen once with
@@ -141,6 +154,7 @@ fn parser() {
     assert!(expr_parser::parse_Expr("-a^-b").is_err());
     assert!(expr_parser::parse_Expr("-a^(-b)").is_ok());
     assert!(expr_parser::parse_Expr("a * -b").is_ok());
+    assert!(expr_parser::parse_Expr("5b").is_ok());
     assert!(expr_parser::parse_Expr(
         "abs(floor(ceil(exp(ln(sin(cos(tan(sec(csc(cot(arcsin(arccos(arctan(arcsec(\
          arccsc(arccot(1)))))))))))))))))"
@@ -149,89 +163,6 @@ fn parser() {
     assert!(expr_parser::parse_Equation("x=((22)").is_err());
     assert!(expr_parser::parse_Equation("cos(x) + cos(y) = 1/2").is_ok());
 }
-
-// #[test]
-// fn expr_vars() {
-//     use expr::*;
-//     fn ck_vars(e: Expr, i: &[&str]) -> bool {
-//         i.into_iter().collect::<HashSet<_>>() == e.vars().keys().collect()
-//     }
-//     use expr::helper::*;
-//     assert!(ck_vars(func(KnownFunc::Sine, lit(1.0)), &[]));
-//     assert!(ck_vars(func(KnownFunc::Sine, mul(var("eee"), var("qqq"))),
-//                     &["eee", "qqq"]));
-//     let abc: Vec<String> = (0x61..0x7A).map(|c| char::from(c).to_string()).collect();
-//     let abc: Vec<&str> = abc.iter().map(|s| s.as_str()).collect();
-//     assert!(ck_vars(abc.iter().cloned().map(var).fold(lit(0.0), add),
-//                     abc.as_slice()));
-// }
-
-
-const BENCH_EXPR: &'static str = "abs(sin(x + 1) * (x^2 + x + 1))";
-#[bench]
-fn meval_expr_eval_bench(b: &mut test::Bencher) {
-    let e: meval::Expr = BENCH_EXPR.parse().unwrap();
-    let f = e.bind("x").unwrap();
-    b.iter(move || {
-        // 143ns +/- 3
-        f(1.0);
-    })
-}
-#[bench]
-fn my_expr_eval_fnvhash_bench(b: &mut test::Bencher) {
-    let e = expr_parser::parse_Expr(BENCH_EXPR).unwrap();
-    let mut map = FnvHashMap::<&str, f64>::with_capacity_and_hasher(1, Default::default());
-    b.iter(move || {
-        // 109ns +/- 1
-        map.insert("x", 1.0);
-        e.eval(&map);
-    })
-}
-// #[bench]
-// fn my_expr_eval_siphash_bench(b: &mut test::Bencher) {
-//     let e = expr_parser::parse_Expr(BENCH_EXPR).unwrap();
-//     let mut map = HashMap::<&str, f64>::with_capacity(1);
-//     b.iter(move || {
-//         // 193ns +/- 4
-//         map.insert("x", 1.0);
-//         e.eval(&map);
-//     })
-// }
-
-const BENCH_EXPR_2: &'static str = "abs(sin(x + 1) * (x^2 + x + 1)) + abs(sin(y + 1) * (y^2 + y + \
-                                    1))";
-// const BENCH_EXPR_2: &'static str = "x*x*x*x*x*y";
-#[bench]
-fn meval_expr_eval2_bench(b: &mut test::Bencher) {
-    let e: meval::Expr = BENCH_EXPR_2.parse().unwrap();
-    let f = e.bind2("x", "y").unwrap();
-    b.iter(move || {
-        f(1.0, 3.0);
-    })
-}
-#[bench]
-fn my_expr_eval2_fnvhash_bench(b: &mut test::Bencher) {
-    let e = expr_parser::parse_Expr(BENCH_EXPR_2).unwrap();
-    let mut map = FnvHashMap::<&str, f64>::with_capacity_and_hasher(2, Default::default());
-    b.iter(move || {
-        map.insert("x", 1.0);
-        map.insert("y", 3.0);
-        e.eval(&map);
-    })
-}
-
-// #[bench]
-// fn my_expr_eval_bench(b: &mut test::Bencher) {
-//     let e = expr_parser::parse_Expr("cos(1.5*x) + cos(y) - 1").unwrap();
-//     let mut map = FnvHashMap::<&str, f64>::with_capacity_and_hasher(2, Default::default());
-//     map.insert("x", 2.0);
-//     map.insert("y", 3.0);
-//     b.iter(move || {
-//         for _ in 0..1000 {
-//             e.eval(&map);
-//         }
-//     })
-// }
 
 #[bench]
 fn my_comp_expr_eval_bench(b: &mut test::Bencher) {
@@ -248,46 +179,6 @@ fn my_comp_expr_eval_bench(b: &mut test::Bencher) {
 }
 
 #[bench]
-fn teast(b: &mut test::Bencher) {
-    b.iter(|| for _ in 0..1000 {
-        test::black_box(())
-    });
-}
-
-// #[bench]
-// fn expr_setvar_noop(b: &mut test::Bencher) {
-//     let mut e = expr_parser::parse_Expr("a*b*c*d*e*f*g*x").unwrap().compile();
-//     b.iter(|| for _ in 0..1000 { e.set_var("z", 1.0) });
-// }
-// #[bench]
-// fn expr_setvar(b: &mut test::Bencher) {
-//     let mut e = expr_parser::parse_Expr("a*b*c*d*e*f*g*x").unwrap().compile();
-//     b.iter(|| /* 4.1ns +/- 0.1 */ for _ in 0..1000 { e.set_var("x", 1.0) });
-// }
-
-// #[bench]
-// fn fnvhashget(b: &mut test::Bencher) {
-//     let mut map = FnvHashMap::<&str, f64>::with_capacity_and_hasher(1, Default::default());
-//     map.insert("0", 1.0);
-//     b.iter(|| for _ in 0..1000 { map.get("0"); });
-// }
-// #[bench]
-// fn fnvhashinsert(b: &mut test::Bencher) {
-//     let mut map = FnvHashMap::<&str, f64>::with_capacity_and_hasher(1, Default::default());
-//     b.iter(|| for _ in 0..1000 { map.insert("0", 1.0); });
-// }
-// #[bench]
-// fn vec_write(b: &mut test::Bencher) {
-//     let mut v = vec![0];
-//     b.iter(|| for _ in 0..1000 { unsafe { *v.get_unchecked_mut(0) = test::black_box(1); } });
-// }
-// #[bench]
-// fn vec_read(b: &mut test::Bencher) {
-//     let mut v = vec![0];
-//     b.iter(|| for _ in 0..1000 { unsafe { test::black_box(v.get_unchecked(0)); } });
-// }
-
-#[bench]
 fn plot_bench(b: &mut test::Bencher) {
     let surf = cairo::ImageSurface::create(cairo::Format::Rgb24, 500, 500);
     let ctx = cairo::Context::new(&surf);
@@ -297,11 +188,6 @@ fn plot_bench(b: &mut test::Bencher) {
 
     b.iter(move || {
         // 4.138ms +/- 0.223
-        marching_squares::marching_squares(&ctx,
-                                           |x, y| f(x, y),
-                                           &(-10.0..10.0),
-                                           256,
-                                           &(-10.0..10.0),
-                                           256);
+        marching_squares::marching_squares(&ctx, &mut *f, &(-10.0..10.0), 256, &(-10.0..10.0), 256);
     });
 }
