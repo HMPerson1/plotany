@@ -24,7 +24,7 @@ pub fn marching_squares<F>(ctx: &cairo::Context,
 
     ctx.set_antialias(cairo::Antialias::Best);
     ctx.set_fill_rule(cairo::FillRule::Winding);
-    let (ox, oy, ex, ey) = ctx.clip_extents();
+    let (ox, oy, ex, ey) = ctx.clip_extents().expect("no clip");
 
     // canvas coordinates to plot coordinates
     ctx.scale((ex - ox) / (xr.end - xr.start),

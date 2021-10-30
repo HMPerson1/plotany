@@ -1,15 +1,17 @@
 #![cfg_attr(feature = "cargo-clippy", warn(clippy,clippy_pedantic))]
 #![cfg_attr(feature = "cargo-clippy", allow(missing_docs_in_private_items))]
-#![feature(test)]
-extern crate test;
+// #![feature(test)]
+// extern crate test;
 extern crate ndarray;
 extern crate gtk;
 extern crate cairo;
 extern crate fnv;
+#[macro_use]
+extern crate lalrpop_util;
 
 mod expr;
 #[cfg_attr(feature = "cargo-clippy", allow(clippy,clippy_pedantic))]
-mod expr_parser;
+lalrpop_mod!(expr_parser);
 mod marching_squares;
 
 use std::error::Error;
@@ -27,7 +29,7 @@ fn main() {
 macro_rules! get_objects_from_builder {
     ($b:ident, $($n:ident : $t:ty),*) => {
         $(
-            let $n : $t = $b.get_object(stringify!($n))
+            let $n : $t = $b.object(stringify!($n))
                 .expect(concat!("Failed to get `", stringify!($n), "`",
                                 " from `", stringify!($b), "`"));
         )*
@@ -47,7 +49,7 @@ fn main0() -> Result<(), Box<Error>> {
     // println!("{:?}", eqn);
 
     gtk::init().expect("failed to initialize GTK.");
-    let builder = gtk::Builder::new_from_string(include_str!("layout.glade"));
+    let builder = gtk::Builder::from_string(include_str!("layout.glade"));
     get_objects_from_builder!(builder,
                               window: gtk::Window,
                               drawing: gtk::DrawingArea,
@@ -89,8 +91,7 @@ fn main0() -> Result<(), Box<Error>> {
             drawing.queue_draw();
             *eq.borrow_mut() = {
                 let new_eq =
-                    implicit_eqn_entry.get_text().ok_or("internal: no text")
-                    .and_then(|s| expr_parser::parse_Equation(&s).map_err(|_| "parse error"))
+                    expr_parser::EquationParser::new().parse(implicit_eqn_entry.text().as_str()).map_err(|_| "parse error")
                     .and_then(|ne| {
                               let cne = ne.to_diff().compile();
                               if cne.vars().iter().all(|v| v == &"x" || v == &"y") {
@@ -111,8 +112,8 @@ fn main0() -> Result<(), Box<Error>> {
                     }
                 }
             };
-            *x_range.borrow_mut() = x_min_entry.get_value() .. x_max_entry.get_value();
-            *y_range.borrow_mut() = y_min_entry.get_value() .. y_max_entry.get_value();
+            *x_range.borrow_mut() = x_min_entry.value() .. x_max_entry.value();
+            *y_range.borrow_mut() = y_min_entry.value() .. y_max_entry.value();
         }));
 
     info_bar.connect_response(cloning!(info_bar_revealer => move |_, _| {
@@ -149,45 +150,45 @@ fn main0() -> Result<(), Box<Error>> {
     Ok(())
 }
 
-#[test]
-fn parser() {
-    assert!(expr_parser::parse_Expr("-a^-b").is_err());
-    assert!(expr_parser::parse_Expr("-a^(-b)").is_ok());
-    assert!(expr_parser::parse_Expr("a * -b").is_ok());
-    assert!(expr_parser::parse_Expr("5b").is_ok());
-    assert!(expr_parser::parse_Expr(
-        "abs(floor(ceil(exp(ln(sin(cos(tan(sec(csc(cot(arcsin(arccos(arctan(arcsec(\
-         arccsc(arccot(1)))))))))))))))))"
-    ).is_ok());
-    assert!(expr_parser::parse_Equation("x=22").is_ok());
-    assert!(expr_parser::parse_Equation("x=((22)").is_err());
-    assert!(expr_parser::parse_Equation("cos(x) + cos(y) = 1/2").is_ok());
-}
+// #[test]
+// fn parser() {
+//     assert!(expr_parser::parse_Expr("-a^-b").is_err());
+//     assert!(expr_parser::parse_Expr("-a^(-b)").is_ok());
+//     assert!(expr_parser::parse_Expr("a * -b").is_ok());
+//     assert!(expr_parser::parse_Expr("5b").is_ok());
+//     assert!(expr_parser::parse_Expr(
+//         "abs(floor(ceil(exp(ln(sin(cos(tan(sec(csc(cot(arcsin(arccos(arctan(arcsec(\
+//          arccsc(arccot(1)))))))))))))))))"
+//     ).is_ok());
+//     assert!(expr_parser::parse_Equation("x=22").is_ok());
+//     assert!(expr_parser::parse_Equation("x=((22)").is_err());
+//     assert!(expr_parser::parse_Equation("cos(x) + cos(y) = 1/2").is_ok());
+// }
 
-#[bench]
-fn my_comp_expr_eval_bench(b: &mut test::Bencher) {
-    let mut e = expr_parser::parse_Expr("cos(1.5*x) + cos(y) - 1")
-        .unwrap()
-        .compile()
-        .bind2("x", "y");
-    b.iter(move || {
-        for _ in 0..1000 {
-            // 80.9ns +/- 1.0
-            e(2.0, 3.0);
-        }
-    })
-}
+// #[bench]
+// fn my_comp_expr_eval_bench(b: &mut test::Bencher) {
+//     let mut e = expr_parser::parse_Expr("cos(1.5*x) + cos(y) - 1")
+//         .unwrap()
+//         .compile()
+//         .bind2("x", "y");
+//     b.iter(move || {
+//         for _ in 0..1000 {
+//             // 80.9ns +/- 1.0
+//             e(2.0, 3.0);
+//         }
+//     })
+// }
 
-#[bench]
-fn plot_bench(b: &mut test::Bencher) {
-    let surf = cairo::ImageSurface::create(cairo::Format::Rgb24, 500, 500);
-    let ctx = cairo::Context::new(&surf);
+// #[bench]
+// fn plot_bench(b: &mut test::Bencher) {
+//     let surf = cairo::ImageSurface::create(cairo::Format::Rgb24, 500, 500);
+//     let ctx = cairo::Context::new(&surf);
 
-    let eq = expr_parser::parse_Equation("x^2 + y^2 = 5^2").unwrap();
-    let mut f = eq.to_diff().compile().bind2("x", "z");
+//     let eq = expr_parser::parse_Equation("x^2 + y^2 = 5^2").unwrap();
+//     let mut f = eq.to_diff().compile().bind2("x", "z");
 
-    b.iter(move || {
-        // 4.138ms +/- 0.223
-        marching_squares::marching_squares(&ctx, &mut *f, &(-10.0..10.0), 256, &(-10.0..10.0), 256);
-    });
-}
+//     b.iter(move || {
+//         // 4.138ms +/- 0.223
+//         marching_squares::marching_squares(&ctx, &mut *f, &(-10.0..10.0), 256, &(-10.0..10.0), 256);
+//     });
+// }
